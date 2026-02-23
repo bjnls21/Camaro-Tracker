@@ -1,0 +1,63 @@
+{
+  "updated_at": "2026-02-23T23:35:10.784562+00:00",
+  "total": 4,
+  "new_count": 4,
+  "listings": [
+    {
+      "id": "5f4cc903e1d1",
+      "source": "BringATrailer",
+      "title": "1969 Chevrolet Camaro SS 396 4-Speed",
+      "price": "Auction",
+      "price_num": 0,
+      "url": "https://bringatrailer.com/listing/1969-chevrolet-camaro-531/",
+      "image": "https://bringatrailer.com/wp-content/uploads/2025/10/1969_chevrolet_camaro_1969_chevrolet_camaro_69deafa0-a6d5-40df-a256-2942bbf76786-pdlmnu-35428-63911.jpg?resize=470%2C318",
+      "location": "United States",
+      "is_auction": true,
+      "listed_at": "2026-02-23T23:34:42.696147+00:00",
+      "fetched_at": "2026-02-23T23:34:42.696167+00:00",
+      "is_new": true
+    },
+    {
+      "id": "a4690bcc0aee",
+      "source": "BringATrailer",
+      "title": "Pro Street-Style 1968 Chevrolet Camaro Coupe",
+      "price": "Auction",
+      "price_num": 0,
+      "url": "https://bringatrailer.com/listing/1968-chevrolet-camaro-397/",
+      "image": "https://bringatrailer.com/wp-content/uploads/2026/01/1968_chevrolet_camaro_img_2824-35159.jpeg?resize=470%2C318",
+      "location": "United States",
+      "is_auction": true,
+      "listed_at": "2026-02-23T23:34:42.696340+00:00",
+      "fetched_at": "2026-02-23T23:34:42.696344+00:00",
+      "is_new": true
+    },
+    {
+      "id": "38ac41be5957",
+      "source": "BringATrailer",
+      "title": "LS7-Powered 1968 Chevrolet Camaro Coupe",
+      "price": "Auction",
+      "price_num": 0,
+      "url": "https://bringatrailer.com/listing/1968-chevrolet-camaro-404/",
+      "image": "https://bringatrailer.com/wp-content/uploads/2026/02/1968_chevrolet_camaro-ss_1968_chevrolet_camaro-ss_3b19e146-c6cc-4a01-833c-684540e8a478-anqahw-76092-48828.jpg?resize=470%2C318",
+      "location": "United States",
+      "is_auction": true,
+      "listed_at": "2026-02-23T23:34:42.696473+00:00",
+      "fetched_at": "2026-02-23T23:34:42.696476+00:00",
+      "is_new": true
+    },
+    {
+      "id": "1275dadb9dbc",
+      "source": "BringATrailer",
+      "title": "Modified 1968 Chevrolet Camaro Coupe 6-Speed",
+      "price": "Auction",
+      "price_num": 0,
+      "url": "https://bringatrailer.com/listing/1968-chevrolet-camaro-400/",
+      "image": "https://bringatrailer.com/wp-content/uploads/2026/02/1968_chevrolet_camaro_1968_chevrolet_camaro_7d566c48-5041-4e79-9bfe-ac51029f1fe3-piUekL-19435-19436-scaled.jpg?resize=470%2C318",
+      "location": "United States",
+      "is_auction": true,
+      "listed_at": "2026-02-23T23:34:42.696591+00:00",
+      "fetched_at": "2026-02-23T23:34:42.696594+00:00",
+      "is_new": true
+    }
+  ]
+}
