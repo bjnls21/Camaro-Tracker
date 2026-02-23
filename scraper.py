@@ -390,7 +390,7 @@ def send_email(new_listings):
             </div>"""
     html += f"""
       <div style="text-align:center;margin-top:24px;">
-        <a href="https://YOUR_GITHUB_USERNAME.github.io/camaro-tracker" 
+        <a href="https://bjnls21.github.io/camaro-tracker" 
            style="background:#C8281E;color:white;padding:14px 28px;border-radius:4px;text-decoration:none;font-weight:bold;font-size:14px;letter-spacing:1px;">
           VIEW ALL IN DASHBOARD →
         </a>
