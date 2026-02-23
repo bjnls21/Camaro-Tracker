@@ -1,0 +1,41 @@
+name: 1969 Camaro Tracker
+
+on:
+  schedule:
+    - cron: "0 12 * * *"   # Runs every day at 12:00 PM UTC (8 AM Eastern)
+  workflow_dispatch:         # Lets you click "Run" manually anytime from GitHub
+
+permissions:
+  contents: write            # Needed to save listings.json back to the repo
+
+jobs:
+  scrape-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install requests beautifulsoup4 lxml
+
+      - name: Run scraper
+        env:
+          EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+          EMAIL_TO:   ${{ secrets.EMAIL_TO }}
+          EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
+        run: python scraper.py
+
+      - name: Commit updated listings to repo
+        run: |
+          git config user.name  "Camaro Bot"
+          git config user.email "bot@camaro-tracker"
+          git add docs/listings.json docs/seen_ids.json
+          git diff --cached --quiet || git commit -m "Update listings $(date -u '+%Y-%m-%d %H:%M UTC')"
+          git push
