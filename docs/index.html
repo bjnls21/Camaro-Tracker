@@ -295,7 +295,7 @@ body {
   <div class="header-stats">
     <div class="hstat"><div class="hstat-num" id="h-total">—</div><div class="hstat-label">Total</div></div>
     <div class="hstat"><div class="hstat-num" id="h-new" style="color:var(--red)">—</div><div class="hstat-label">New Today</div></div>
-    <div class="hstat"><div class="hstat-num" id="h-sources">5</div><div class="hstat-label">Sources</div></div>
+    <div class="hstat"><div class="hstat-num" id="h-sources">7</div><div class="hstat-label">Sources</div></div>
   </div>
   <div class="live-pill"><div class="live-dot"></div> Auto-updated daily</div>
   <div class="header-right">
@@ -319,9 +319,12 @@ body {
   <button class="filter-btn" onclick="setFilter('under10',this)">Under $10k</button>
   <button class="filter-btn" onclick="setFilter('under25',this)">Under $25k</button>
   <button class="filter-btn" onclick="setFilter('ebay',this)">eBay</button>
-  <button class="filter-btn" onclick="setFilter('hemmings',this)">Hemmings</button>
+  <button class="filter-btn" onclick="setFilter('craigslist',this)">Craigslist</button>
+  <button class="filter-btn" onclick="setFilter('kijiji',this)">Kijiji</button>
   <button class="filter-btn" onclick="setFilter('classiccars',this)">ClassicCars</button>
   <button class="filter-btn" onclick="setFilter('bat',this)">BaT</button>
+  <button class="filter-btn" onclick="setFilter('mecum',this)">Mecum</button>
+  <button class="filter-btn" onclick="setFilter('barrett',this)">Barrett-Jackson</button>
   <select class="sort-select" id="sort-select" onchange="render()">
     <option value="new-first">New First</option>
     <option value="price-low">Price: Low → High</option>
@@ -433,9 +436,12 @@ function render() {
   if (f === 'under10')    filtered = filtered.filter(l => l.price_num > 0 && l.price_num < 10000);
   if (f === 'under25')    filtered = filtered.filter(l => l.price_num > 0 && l.price_num < 25000);
   if (f === 'ebay')       filtered = filtered.filter(l => l.source === 'eBay Motors');
-  if (f === 'hemmings')   filtered = filtered.filter(l => l.source === 'Hemmings');
+  if (f === 'craigslist') filtered = filtered.filter(l => l.source === 'Craigslist');
+  if (f === 'kijiji')     filtered = filtered.filter(l => l.source === 'Kijiji');
   if (f === 'classiccars')filtered = filtered.filter(l => l.source === 'ClassicCars.com');
   if (f === 'bat')        filtered = filtered.filter(l => l.source === 'BringATrailer');
+  if (f === 'mecum')      filtered = filtered.filter(l => l.source === 'Mecum Auctions');
+  if (f === 'barrett')    filtered = filtered.filter(l => l.source === 'Barrett-Jackson');
 
   // Sort
   if (sort === 'new-first')  filtered.sort((a,b) => (b.is_new - a.is_new) || new Date(b.fetched_at) - new Date(a.fetched_at));
