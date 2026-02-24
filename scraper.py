@@ -33,15 +33,28 @@ EMAIL_PASS = os.environ.get("EMAIL_PASS", "")
 OUTPUT_FILE = Path("docs/listings.json")
 SEEN_FILE   = Path("docs/seen_ids.json")
 
-HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/121.0.0.0 Safari/537.36"
-    ),
-    "Accept-Language": "en-US,en;q=0.9",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-}
+# Rotate user agents to avoid blocks
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_2) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+]
+
+def get_headers():
+    return {
+        "User-Agent": random.choice(USER_AGENTS),
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Connection": "keep-alive",
+        "Upgrade-Insecure-Requests": "1",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Cache-Control": "max-age=0",
+    }
 
 def clean_url(url):
     """Strip tracking params so the same listing always gets the same ID."""
@@ -60,13 +73,13 @@ def title_uid(title, source):
 def get(url):
     for attempt in range(3):
         try:
-            time.sleep(random.uniform(2, 4))
-            r = requests.get(url, headers=HEADERS, timeout=25)
+            time.sleep(random.uniform(3, 6))
+            r = requests.get(url, headers=get_headers(), timeout=25)
             r.raise_for_status()
             return r
         except Exception as e:
             log.warning(f"Attempt {attempt+1} failed: {e}")
-            time.sleep(6)
+            time.sleep(random.uniform(8, 15))
     return None
 
 def now_iso():
@@ -102,7 +115,7 @@ def scrape_ebay():
     log.info("Scraping eBay Motors...")
 
     # HTML scrape (more reliable, shows photos)
-    url = "https://www.ebay.com/sch/i.html?_nkw=1969+chevrolet+camaro&_sacat=6001&_sop=10&_ipg=50"
+    url = "https://www.ebay.com/sch/i.html?_nkw=1969+camaro&_sacat=6001&_sop=10&_ipg=50&LH_Complete=0&LH_Sold=0"
     r = get(url)
     if r:
         soup = BeautifulSoup(r.text, "html.parser")
@@ -195,7 +208,7 @@ def scrape_ebay():
 def scrape_hemmings():
     listings = []
     log.info("Scraping Hemmings...")
-    url = "https://www.hemmings.com/classifieds/cars-for-sale/chevrolet/camaro?year1=1969&year2=1969"
+    url = "https://www.hemmings.com/classifieds/cars-for-sale/chevrolet/camaro?year1=1969&year2=1969&sort=newest"
     r = get(url)
     if not r:
         return listings
@@ -326,8 +339,8 @@ def scrape_bat():
     listings = []
     log.info("Scraping BringATrailer...")
     urls = [
-        "https://bringatrailer.com/chevrolet/camaro/?s=1969",
         "https://bringatrailer.com/search/?s=1969+camaro",
+        "https://bringatrailer.com/listing/search/?s=1969+camaro",
     ]
     for url in urls:
         r = get(url)
@@ -381,7 +394,7 @@ def scrape_bat():
 def scrape_carsandbids():
     listings = []
     log.info("Scraping Cars & Bids...")
-    url = "https://carsandbids.com/search#?q=1969+camaro"
+    url = "https://carsandbids.com/auctions/past/?q=1969+camaro"
     r = get(url)
     if not r:
         return listings
