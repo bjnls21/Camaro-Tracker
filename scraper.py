@@ -1,9 +1,9 @@
 """
-1969 Camaro Listing Scraper
-Fetches listings from eBay, Craigslist (via AutoTempest RSS),
-Hemmings, ClassicCars.com, BringATrailer, and Cars & Bids.
-Saves results to docs/listings.json so the dashboard can read it.
-Also emails you a daily summary of NEW listings.
+1969 Camaro Listing Scraper — Fixed Version
+- Strict 1969-only year filtering on ALL sources
+- Improved eBay fetching (HTML + RSS fallback)
+- Better Hemmings and ClassicCars selectors
+- BringATrailer year-locked URL
 """
 
 import os
@@ -30,8 +30,8 @@ EMAIL_FROM = os.environ.get("EMAIL_FROM", "")
 EMAIL_TO   = os.environ.get("EMAIL_TO", "")
 EMAIL_PASS = os.environ.get("EMAIL_PASS", "")
 
-OUTPUT_FILE  = Path("docs/listings.json")
-SEEN_FILE    = Path("docs/seen_ids.json")
+OUTPUT_FILE = Path("docs/listings.json")
+SEEN_FILE   = Path("docs/seen_ids.json")
 
 HEADERS = {
     "User-Agent": (
@@ -44,7 +44,6 @@ HEADERS = {
 }
 
 def uid(s):
-    """Make a short stable ID from a string."""
     return hashlib.md5(s.encode()).hexdigest()[:12]
 
 def get(url):
@@ -55,73 +54,129 @@ def get(url):
             r.raise_for_status()
             return r
         except Exception as e:
-            log.warning(f"Attempt {attempt+1} failed for {url}: {e}")
+            log.warning(f"Attempt {attempt+1} failed: {e}")
             time.sleep(6)
     return None
 
 def now_iso():
     return datetime.now(timezone.utc).isoformat()
 
+def is_1969_camaro(text):
+    """
+    Strict check — title must contain 1969 AND camaro.
+    Rejects 1968, 1970, and any other year.
+    """
+    t = text.lower()
+    has_camaro = "camaro" in t
+    has_1969   = "1969" in t or bool(re.search(r"\b69\b", t))
+    # If another year like 1968 or 1970 appears but NOT 1969, reject it
+    other_years = re.findall(r'\b(196[0-8]|197[0-9]|196[0-8])\b', text)
+    if other_years and "1969" not in text:
+        return False
+    return has_camaro and has_1969
+
+def extract_price(text):
+    m = re.search(r'US \$([\d,]+)', text) or re.search(r'\$([\d,]+)', text)
+    if m:
+        raw = f"${m.group(1)}"
+        num = int(m.group(1).replace(",", ""))
+        return raw, num
+    return "", 0
+
+
 # ── SCRAPERS ──────────────────────────────────────────────────────────────────
 
 def scrape_ebay():
     listings = []
     log.info("Scraping eBay Motors...")
-    # eBay RSS feed — public, no auth needed
-    url = "https://www.ebay.com/sch/i.html?_nkw=1969+camaro&_sacat=6001&_sop=10&_ipg=50&_rss=1"
+
+    # HTML scrape (more reliable, shows photos)
+    url = "https://www.ebay.com/sch/i.html?_nkw=1969+chevrolet+camaro&_sacat=6001&_sop=10&_ipg=50"
     r = get(url)
-    if not r:
-        return listings
-    soup = BeautifulSoup(r.content, "xml")
-    for item in soup.find_all("item"):
-        title = item.find("title")
-        if not title:
-            continue
-        title_text = title.get_text(strip=True)
-        if not any(k in title_text.lower() for k in ["camaro","1969","69"]):
-            continue
+    if r:
+        soup = BeautifulSoup(r.text, "html.parser")
+        for item in soup.select("li.s-item"):
+            title_el = item.select_one(".s-item__title")
+            if not title_el:
+                continue
+            title = title_el.get_text(strip=True)
+            if title == "Shop on eBay":
+                continue
+            if not is_1969_camaro(title):
+                continue
 
-        link_tag = item.find("link")
-        link = ""
-        if link_tag:
-            link = link_tag.next_sibling
-            if not link or not str(link).startswith("http"):
+            link_el = item.select_one("a.s-item__link")
+            href = link_el["href"].split("?")[0] if link_el else ""
+
+            price_el = item.select_one(".s-item__price")
+            price_text = price_el.get_text(strip=True) if price_el else ""
+            price_raw, price_num = extract_price(price_text)
+            if not price_raw:
+                price_raw = price_text
+
+            img_el = item.select_one("img.s-item__image-img")
+            image = ""
+            if img_el:
+                image = img_el.get("src","") or img_el.get("data-src","")
+            if image and "gif" in image.lower():
+                image = ""
+
+            loc_el = item.select_one(".s-item__location")
+            location = loc_el.get_text(strip=True).replace("from ","") if loc_el else "United States"
+
+            is_auction = bool(item.select_one(".s-item__time-left"))
+
+            listings.append({
+                "id":        uid(href or title),
+                "source":    "eBay Motors",
+                "title":     title,
+                "price":     price_raw,
+                "price_num": price_num,
+                "url":       href,
+                "image":     image,
+                "location":  location,
+                "is_auction": is_auction,
+                "listed_at": now_iso(),
+                "fetched_at": now_iso(),
+                "is_new":    True,
+            })
+
+    # RSS fallback if HTML returned nothing
+    if not listings:
+        log.info("  eBay HTML got 0, trying RSS...")
+        rss_url = "https://www.ebay.com/sch/i.html?_nkw=1969+camaro&_sacat=6001&_sop=10&_ipg=50&_rss=1"
+        r = get(rss_url)
+        if r:
+            soup = BeautifulSoup(r.content, "xml")
+            for item in soup.find_all("item"):
+                title_el = item.find("title")
+                if not title_el:
+                    continue
+                title = title_el.get_text(strip=True)
+                if not is_1969_camaro(title):
+                    continue
                 guid = item.find("guid")
-                link = guid.get_text(strip=True) if guid else ""
-        link = str(link).strip()
+                href = guid.get_text(strip=True) if guid else ""
+                desc_el = item.find("description")
+                desc = desc_el.get_text(strip=True) if desc_el else ""
+                price_raw, price_num = extract_price(desc)
+                img_m = re.search(r'<img[^>]+src=["\']([^"\']+)["\']', desc, re.I)
+                image = img_m.group(1) if img_m else ""
+                listings.append({
+                    "id":        uid(href or title),
+                    "source":    "eBay Motors",
+                    "title":     title,
+                    "price":     price_raw,
+                    "price_num": price_num,
+                    "url":       href,
+                    "image":     image,
+                    "location":  "United States",
+                    "is_auction": False,
+                    "listed_at": now_iso(),
+                    "fetched_at": now_iso(),
+                    "is_new":    True,
+                })
 
-        desc = item.find("description")
-        desc_text = desc.get_text(strip=True) if desc else ""
-
-        # Price
-        price_match = re.search(r'US \$([\d,]+)', desc_text) or re.search(r'\$([\d,]+)', desc_text)
-        price_raw = f"${price_match.group(1)}" if price_match else ""
-        price_num = int(price_match.group(1).replace(",","")) if price_match else 0
-
-        # Image
-        img_match = re.search(r'<img[^>]+src=["\']([^"\']+)["\']', desc_text, re.I)
-        image = img_match.group(1) if img_match else ""
-
-        # Date
-        pub = item.find("pubDate")
-        pub_text = pub.get_text(strip=True) if pub else now_iso()
-
-        is_auction = "bid" in desc_text.lower() and "buy it now" not in desc_text.lower()
-
-        listings.append({
-            "id":       uid(link or title_text),
-            "source":   "eBay Motors",
-            "title":    title_text,
-            "price":    price_raw,
-            "price_num": price_num,
-            "url":      link,
-            "image":    image,
-            "location": "United States",
-            "is_auction": is_auction,
-            "listed_at": pub_text,
-            "fetched_at": now_iso(),
-            "is_new":   True,
-        })
     log.info(f"  eBay: {len(listings)} listings")
     return listings
 
@@ -135,48 +190,62 @@ def scrape_hemmings():
         return listings
     soup = BeautifulSoup(r.text, "html.parser")
 
-    # Hemmings listing cards
-    cards = soup.select("a[href*='/classifieds/listing/']")
-    seen_hrefs = set()
+    seen = set()
+    cards = (
+        soup.select("a[href*='/classifieds/listing/']") or
+        soup.select("div[class*='listing'] a") or
+        soup.select("article a")
+    )
+
     for card in cards:
         href = card.get("href","")
-        if not href or href in seen_hrefs:
+        if not href or href in seen or "/listing/" not in href:
             continue
-        seen_hrefs.add(href)
+        seen.add(href)
         full_url = "https://www.hemmings.com" + href if href.startswith("/") else href
 
-        title_el = card.select_one("h2,h3,.title,strong")
-        title = title_el.get_text(strip=True) if title_el else card.get_text(strip=True)[:80]
-        if not title or len(title) < 5:
+        # Walk up to find the card container
+        container = card
+        for _ in range(4):
+            if container.parent:
+                container = container.parent
+
+        full_text = container.get_text(" ", strip=True)
+        if not is_1969_camaro(full_text + " " + full_url):
             continue
 
-        price_el = card.select_one(".price,[class*='price']")
-        price = price_el.get_text(strip=True) if price_el else "See listing"
-        price_num = 0
-        pm = re.search(r'[\d,]+', price.replace("$",""))
-        if pm:
-            price_num = int(pm.group().replace(",",""))
+        title_el = container.select_one("h2,h3,h4,[class*='title'],[class*='heading']")
+        title = title_el.get_text(strip=True) if title_el else full_text[:80]
 
-        img_el = card.select_one("img")
-        image = img_el.get("src","") if img_el else ""
+        price_el = container.select_one("[class*='price'],[class*='Price']")
+        price_text = price_el.get_text(strip=True) if price_el else "See listing"
+        price_raw, price_num = extract_price(price_text)
+        if not price_raw:
+            price_raw = price_text
 
-        loc_el = card.select_one("[class*='location'],[class*='city']")
+        img_el = container.select_one("img")
+        image = ""
+        if img_el:
+            image = img_el.get("src","") or img_el.get("data-src","") or img_el.get("data-lazy","")
+
+        loc_el = container.select_one("[class*='location'],[class*='city'],[class*='state']")
         location = loc_el.get_text(strip=True) if loc_el else "United States"
 
         listings.append({
-            "id":       uid(full_url),
-            "source":   "Hemmings",
-            "title":    title,
-            "price":    price,
+            "id":        uid(full_url),
+            "source":    "Hemmings",
+            "title":     title or "1969 Chevrolet Camaro",
+            "price":     price_raw,
             "price_num": price_num,
-            "url":      full_url,
-            "image":    image,
-            "location": location,
+            "url":       full_url,
+            "image":     image,
+            "location":  location,
             "is_auction": False,
             "listed_at": now_iso(),
             "fetched_at": now_iso(),
-            "is_new":   True,
+            "is_new":    True,
         })
+
     log.info(f"  Hemmings: {len(listings)} listings")
     return listings
 
@@ -190,42 +259,54 @@ def scrape_classiccars():
         return listings
     soup = BeautifulSoup(r.text, "html.parser")
 
-    for card in soup.select("a.listing-card, div.listing-card, article[class*='listing']"):
-        href = card.get("href","")
-        if not href:
-            a = card.select_one("a[href*='/listing']")
-            href = a.get("href","") if a else ""
-        if not href:
+    seen = set()
+    for a in soup.select("a[href*='/listings/']"):
+        href = a.get("href","")
+        if not href or href in seen or len(href) < 20 or "find" in href:
             continue
+        seen.add(href)
         full_url = "https://classiccars.com" + href if href.startswith("/") else href
 
-        title_el = card.select_one("h2,h3,.title,[class*='title']")
-        title = title_el.get_text(strip=True) if title_el else "1969 Chevrolet Camaro"
+        container = a
+        for _ in range(5):
+            if container.parent:
+                container = container.parent
 
-        price_el = card.select_one("[class*='price']")
-        price = price_el.get_text(strip=True) if price_el else "See listing"
-        price_num = 0
-        pm = re.search(r'[\d,]+', price.replace("$",""))
-        if pm:
-            price_num = int(pm.group().replace(",",""))
+        full_text = container.get_text(" ", strip=True)
+        if not is_1969_camaro(full_text + " " + full_url):
+            continue
 
-        img_el = card.select_one("img")
-        image = img_el.get("src","") or img_el.get("data-src","") if img_el else ""
+        title_el = container.select_one("h2,h3,[class*='title'],[class*='heading']")
+        title = title_el.get_text(strip=True) if title_el else a.get_text(strip=True)[:80]
+        if not title or len(title) < 5:
+            title = "1969 Chevrolet Camaro"
+
+        price_el = container.select_one("[class*='price'],[class*='Price']")
+        price_text = price_el.get_text(strip=True) if price_el else "See listing"
+        price_raw, price_num = extract_price(price_text)
+        if not price_raw:
+            price_raw = price_text
+
+        img_el = container.select_one("img")
+        image = ""
+        if img_el:
+            image = img_el.get("src","") or img_el.get("data-src","")
 
         listings.append({
-            "id":       uid(full_url),
-            "source":   "ClassicCars.com",
-            "title":    title,
-            "price":    price,
+            "id":        uid(full_url),
+            "source":    "ClassicCars.com",
+            "title":     title,
+            "price":     price_raw,
             "price_num": price_num,
-            "url":      full_url,
-            "image":    image,
-            "location": "United States",
+            "url":       full_url,
+            "image":     image,
+            "location":  "United States",
             "is_auction": False,
             "listed_at": now_iso(),
             "fetched_at": now_iso(),
-            "is_new":   True,
+            "is_new":    True,
         })
+
     log.info(f"  ClassicCars.com: {len(listings)} listings")
     return listings
 
@@ -233,68 +314,54 @@ def scrape_classiccars():
 def scrape_bat():
     listings = []
     log.info("Scraping BringATrailer...")
-    # BaT has a JSON search endpoint
-    url = "https://bringatrailer.com/wp-json/bringatrailer/1.0/data/listings-filter?per_page=50&listing_status=open&s=1969+camaro"
-    r = get(url)
-    if not r:
-        # fallback HTML
-        r = get("https://bringatrailer.com/search/?s=1969+camaro")
+    urls = [
+        "https://bringatrailer.com/chevrolet/camaro/?s=1969",
+        "https://bringatrailer.com/search/?s=1969+camaro",
+    ]
+    for url in urls:
+        r = get(url)
         if not r:
-            return listings
+            continue
         soup = BeautifulSoup(r.text, "html.parser")
-        for card in soup.select("article.post,div.listing-card"):
-            a = card.select_one("a[href*='bringatrailer.com']")
+        for card in soup.select("article.post, li.auctions-item, div[class*='listing']"):
+            a = card.select_one("a[href*='bringatrailer.com']") or card.select_one("a[href]")
             if not a:
                 continue
             href = a.get("href","")
-            title_el = card.select_one("h2,h3")
-            title = title_el.get_text(strip=True) if title_el else a.get_text(strip=True)
-            if "1969" not in title and "camaro" not in title.lower():
-                continue
-            img_el = card.select_one("img")
-            image = img_el.get("src","") if img_el else ""
-            listings.append({
-                "id": uid(href),
-                "source": "BringATrailer",
-                "title": title,
-                "price": "Auction",
-                "price_num": 0,
-                "url": href,
-                "image": image,
-                "location": "United States",
-                "is_auction": True,
-                "listed_at": now_iso(),
-                "fetched_at": now_iso(),
-                "is_new": True,
-            })
-        return listings
+            if not href.startswith("http"):
+                href = "https://bringatrailer.com" + href
 
-    try:
-        data = r.json()
-        items = data if isinstance(data, list) else data.get("listings", data.get("data", []))
-        for item in items:
-            title = item.get("post_title", item.get("title",""))
-            if "1969" not in title and "camaro" not in title.lower():
+            title_el = card.select_one("h2,h3,[class*='title']")
+            title = title_el.get_text(strip=True) if title_el else a.get_text(strip=True)
+
+            # Strict 1969 check — rejects 1968 and other years
+            if not is_1969_camaro(title + " " + href):
                 continue
-            href = item.get("url", item.get("permalink",""))
-            bid = item.get("bid_formatted", item.get("current_bid","Auction"))
-            img = item.get("thumbnail","")
+
+            img_el = card.select_one("img")
+            image = ""
+            if img_el:
+                image = img_el.get("src","") or img_el.get("data-src","")
+
+            price_el = card.select_one("[class*='bid'],[class*='price'],[class*='amount']")
+            price = price_el.get_text(strip=True) if price_el else "Auction"
+
             listings.append({
-                "id": uid(href),
-                "source": "BringATrailer",
-                "title": title,
-                "price": str(bid),
+                "id":        uid(href),
+                "source":    "BringATrailer",
+                "title":     title,
+                "price":     price,
                 "price_num": 0,
-                "url": href,
-                "image": img,
-                "location": "United States",
+                "url":       href,
+                "image":     image,
+                "location":  "United States",
                 "is_auction": True,
                 "listed_at": now_iso(),
                 "fetched_at": now_iso(),
-                "is_new": True,
+                "is_new":    True,
             })
-    except Exception as e:
-        log.warning(f"BaT JSON error: {e}")
+        if listings:
+            break
 
     log.info(f"  BringATrailer: {len(listings)} listings")
     return listings
@@ -308,36 +375,33 @@ def scrape_carsandbids():
     if not r:
         return listings
     soup = BeautifulSoup(r.text, "html.parser")
-    for card in soup.select("a.auction-card, article.listing, div[class*='auction']"):
+    for card in soup.select("a[href*='/auctions/']"):
         href = card.get("href","")
-        if not href:
-            a = card.select_one("a")
-            href = a.get("href","") if a else ""
         if not href:
             continue
         if not href.startswith("http"):
             href = "https://carsandbids.com" + href
         title_el = card.select_one("h2,h3,[class*='title']")
-        title = title_el.get_text(strip=True) if title_el else "1969 Chevrolet Camaro"
-        if "camaro" not in title.lower() and "1969" not in title:
+        title = title_el.get_text(strip=True) if title_el else card.get_text(strip=True)[:80]
+        if not is_1969_camaro(title):
             continue
-        price_el = card.select_one("[class*='price'],[class*='bid']")
-        price = price_el.get_text(strip=True) if price_el else "Auction"
         img_el = card.select_one("img")
         image = img_el.get("src","") if img_el else ""
+        price_el = card.select_one("[class*='price'],[class*='bid']")
+        price = price_el.get_text(strip=True) if price_el else "Auction"
         listings.append({
-            "id": uid(href),
-            "source": "Cars & Bids",
-            "title": title,
-            "price": price,
+            "id":        uid(href),
+            "source":    "Cars & Bids",
+            "title":     title,
+            "price":     price,
             "price_num": 0,
-            "url": href,
-            "image": image,
-            "location": "United States",
+            "url":       href,
+            "image":     image,
+            "location":  "United States",
             "is_auction": True,
             "listed_at": now_iso(),
             "fetched_at": now_iso(),
-            "is_new": True,
+            "is_new":    True,
         })
     log.info(f"  Cars & Bids: {len(listings)} listings")
     return listings
@@ -355,7 +419,8 @@ def save_seen(seen_ids):
 
 def load_existing():
     if OUTPUT_FILE.exists():
-        return json.loads(OUTPUT_FILE.read_text())
+        data = json.loads(OUTPUT_FILE.read_text())
+        return data.get("listings", []) if isinstance(data, dict) else data
     return []
 
 
@@ -374,23 +439,27 @@ def send_email(new_listings):
       <p style="color:#888;margin:6px 0 0;">Daily Alert — {datetime.now().strftime('%B %d, %Y')}</p>
     </div>
     <div style="background:#F5F0E8;padding:24px;">
-      <p style="font-size:16px;color:#333;"><strong>{len(new_listings)} new listing(s)</strong> found across {len(by_source)} source(s).</p>
-    """
+      <p style="font-size:16px;color:#333;">
+        <strong>{len(new_listings)} new 1969 Camaro listing(s)</strong> found across {len(by_source)} source(s).
+      </p>"""
+
     for source, items in sorted(by_source.items()):
         html += f'<h3 style="color:#C8281E;border-bottom:2px solid #C8281E;padding-bottom:6px;">{source} ({len(items)})</h3>'
         for l in items:
+            img_tag = f'<img src="{l["image"]}" style="width:120px;height:80px;object-fit:cover;border-radius:4px;flex-shrink:0;">' if l.get("image") else ''
             html += f"""
-            <div style="background:white;border:1px solid #ddd;border-radius:6px;padding:14px;margin:10px 0;display:flex;gap:14px;">
-              {'<img src="'+l["image"]+'" style="width:100px;height:70px;object-fit:cover;border-radius:4px;flex-shrink:0;">' if l.get("image") else ''}
+            <div style="background:white;border:1px solid #ddd;border-radius:6px;padding:14px;margin:10px 0;display:flex;gap:14px;align-items:center;">
+              {img_tag}
               <div>
                 <a href="{l['url']}" style="font-size:15px;font-weight:bold;color:#1a5276;text-decoration:none;">{l['title']}</a><br>
-                <span style="color:#27ae60;font-weight:bold;font-size:15px;">{l['price'] or 'See listing'}</span>
+                <span style="color:#27ae60;font-weight:bold;">{l['price'] or 'See listing'}</span>
                 <span style="color:#888;font-size:12px;margin-left:10px;">{l['source']}</span>
               </div>
             </div>"""
+
     html += f"""
       <div style="text-align:center;margin-top:24px;">
-        <a href="https://bjnls21.github.io/Camaro-Tracker" 
+        <a href="https://bjnls21.github.io/Camaro-Tracker"
            style="background:#C8281E;color:white;padding:14px 28px;border-radius:4px;text-decoration:none;font-weight:bold;font-size:14px;letter-spacing:1px;">
           VIEW ALL IN DASHBOARD →
         </a>
@@ -403,10 +472,10 @@ def send_email(new_listings):
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = f"🚗 {len(new_listings)} New 1969 Camaro Listing(s) — {datetime.now().strftime('%b %d')}"
-    msg["From"] = EMAIL_FROM
-    msg["To"] = EMAIL_TO
+    msg["From"]    = EMAIL_FROM
+    msg["To"]      = EMAIL_TO
     msg.attach(MIMEText(plain, "plain"))
-    msg.attach(MIMEText(html, "html"))
+    msg.attach(MIMEText(html,  "html"))
 
     with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
         smtp.login(EMAIL_FROM, EMAIL_PASS)
@@ -437,7 +506,6 @@ def main():
         except Exception as e:
             log.error(f"{name} failed: {e}", exc_info=True)
 
-    # Mark new vs seen
     new_listings = []
     merged = {}
     for l in all_fetched:
@@ -446,29 +514,28 @@ def main():
             new_listings.append(l)
         merged[l["id"]] = l
 
-    # Keep old listings that are still relevant (up to 500 total)
     for lid, l in existing.items():
         if lid not in merged:
             l["is_new"] = False
             merged[lid] = l
 
-    final = sorted(merged.values(), key=lambda x: (not x["is_new"], x.get("fetched_at","")))[:500]
+    final = sorted(
+        merged.values(),
+        key=lambda x: (not x["is_new"], x.get("fetched_at",""))
+    )[:500]
 
-    # Save
     output = {
         "updated_at": now_iso(),
-        "total": len(final),
-        "new_count": len(new_listings),
-        "listings": final,
+        "total":      len(final),
+        "new_count":  len(new_listings),
+        "listings":   final,
     }
     OUTPUT_FILE.write_text(json.dumps(output, indent=2))
-    log.info(f"Saved {len(final)} listings ({len(new_listings)} new) to {OUTPUT_FILE}")
+    log.info(f"Saved {len(final)} listings ({len(new_listings)} new) → {OUTPUT_FILE}")
 
-    # Update seen IDs
     seen_ids.update(l["id"] for l in all_fetched)
     save_seen(seen_ids)
 
-    # Email
     if new_listings:
         send_email(new_listings)
 
