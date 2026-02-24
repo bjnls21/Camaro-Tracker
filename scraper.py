@@ -43,8 +43,19 @@ HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
 }
 
-def uid(s):
-    return hashlib.md5(s.encode()).hexdigest()[:12]
+def clean_url(url):
+    """Strip tracking params so the same listing always gets the same ID."""
+    url = str(url).split("?")[0].split("#")[0]
+    url = re.sub(r"/$", "", url)
+    return url.lower().strip()
+
+def uid(url):
+    return hashlib.md5(clean_url(url).encode()).hexdigest()[:12]
+
+def title_uid(title, source):
+    """Secondary dedup by title + source — catches same listing with different URLs."""
+    key = re.sub(r"\s+", " ", title.lower().strip()) + "|" + source.lower()
+    return hashlib.md5(key.encode()).hexdigest()[:12]
 
 def get(url):
     for attempt in range(3):
@@ -506,10 +517,19 @@ def main():
         except Exception as e:
             log.error(f"{name} failed: {e}", exc_info=True)
 
+    # ── Deduplicate by URL id AND by title+source ──
     new_listings = []
     merged = {}
+    seen_title_ids = set()
+
     for l in all_fetched:
-        l["is_new"] = l["id"] not in seen_ids
+        tid = title_uid(l["title"], l["source"])
+        # Skip if we already have this exact listing (by URL or by title)
+        if l["id"] in merged or tid in seen_title_ids:
+            log.info(f"  Duplicate skipped: {l['title'][:60]}")
+            continue
+        seen_title_ids.add(tid)
+        l["is_new"] = l["id"] not in seen_ids and tid not in seen_ids
         if l["is_new"]:
             new_listings.append(l)
         merged[l["id"]] = l
